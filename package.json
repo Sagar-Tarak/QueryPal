@@ -1,0 +1,58 @@
+{
+  "name": "querypal",
+  "version": "0.1.0",
+  "description": "Terminal tool for exploring PostgreSQL databases: browse tables, search rows, manage connection profiles.",
+  "main": "index.js",
+  "bin": {
+    "querypal": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepack": "pnpm build",
+    "dev": "tsx --env-file-if-exists=.env src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "postgres",
+    "postgresql",
+    "cli",
+    "tui",
+    "database",
+    "terminal"
+  ],
+  "author": "tarakshubham4 <tarakshubham4@gmail.com>",
+  "license": "ISC",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "^11.3.0",
+      "onFail": "download"
+    }
+  },
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "ink-testing-library": "^4.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.7.3",
+    "@napi-rs/keyring": "^2.1.1",
+    "commander": "^15.0.0",
+    "dotenv": "^18.0.8",
+    "ink": "^8.0.0",
+    "pg": "^8.23.1",
+    "react": "^19.3.1"
+  }
+}
