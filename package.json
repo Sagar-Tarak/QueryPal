@@ -1,6 +1,6 @@
 {
   "name": "querypal",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Terminal tool for exploring PostgreSQL databases: browse tables, search rows, manage connection profiles.",
   "bin": {
     "querypal": "dist/index.js"
