@@ -4,7 +4,7 @@
 
 QueryPal helps developers inspect database structure and find records without writing SQL for every routine task. It is designed to make PostgreSQL exploration approachable while keeping query behavior visible and database access safe.
 
-> **Project status:** Early development. Reading data (`tables`, `describe`, `find`) and connection profiles (`init`, `profile`) work today. Editing data and an interactive terminal UI are planned, not built. Check the current code and tests before assuming a planned capability is available.
+> **Project status:** Early development. Reading data, connection profiles, an interactive terminal UI, and guarded `update`/`delete` commands are implemented. `insert`, backup restore, arbitrary SQL, and import/export are still planned. Check the current code and tests before assuming a planned capability is available.
 
 ## Why QueryPal?
 
@@ -38,11 +38,12 @@ QueryPal aims to provide simple commands for these tasks, with clear output, use
 | `querypal profile list \| use <name> \| remove <name>` | Manage saved connection profiles | Basic implementation |
 | `querypal tables [-s schema]` | List tables in every schema, or one schema | Basic implementation |
 | `querypal describe <table> [-s schema]` | Display columns for a table (`schema.table` also works) | Basic implementation |
-| `querypal find <table> <column=value> [-l n] [-s schema]` | Find records matching an equality filter | Basic implementation |
+| `querypal find <table> <column=value> [-l n] [-s schema]` | Find records matching an equality filter | Implemented |
+| `querypal update ... --where ...` / `querypal delete ... --where ...` | Preview and apply guarded writes | Implemented |
 
 Global option: `-p, --profile <name>` runs a command against a specific profile.
 
-The command set and output may change during early development. Editing data, relationship discovery, count, JSON output, query history, saved queries, and the interactive terminal UI are not considered implemented until they exist and are tested in the repository.
+The command set and output may change during early development. Insert, restore, relationship discovery, count, JSON output, query history, and saved queries are not implemented yet.
 
 ## Technology Stack
 
@@ -198,26 +199,19 @@ QueryPal/
 ├── src/
 │   ├── index.ts                  entry point
 │   ├── cli.ts                    commands, output, error handling
-│   ├── config/
-│   │   ├── connection.ts         picks which database to use
-│   │   ├── profiles.ts           config file, profile type, connection string
-│   │   ├── password.ts           keyring, env variable, prompt
-│   │   ├── keyring.ts            OS keyring wrapper
-│   │   └── setup.ts              the `init` wizard
-│   └── database/postgres/
-│       ├── client.ts             connection pool
-│       ├── tables.ts             list tables
-│       ├── describe-table.ts     list columns
-│       ├── find-records.ts       equality search
-│       └── errors.ts             readable error messages
-├── tests/unit/
+│   ├── config/                   connections, profiles, passwords
+│   ├── database/postgres/        queries, write safeguards, pool
+│   └── tui/                      browser, profile screens, setup form
+├── tests/
+│   ├── unit/
+│   └── integration/
 ├── doc/                          this documentation
 ├── .env.example
 ├── package.json
 └── tsconfig.json
 ```
 
-Planned, not yet present: `tests/integration/`, `src/safety/`, and a terminal UI.
+Integration coverage lives in `tests/integration/`. Database write safeguards live in `database/postgres/mutate-records.ts`.
 
 ## Safety and Security
 
@@ -259,14 +253,13 @@ Done: `tables`, `describe`, `find`, schema support, readable errors, connection 
 
 Planned, in order:
 
-1. Integration tests against a throwaway PostgreSQL in Docker.
-2. A terminal UI to browse tables and rows.
-3. Editing data (`insert`, `update`, `delete`, import and export) with per-profile access levels, dry-run previews, transactions, and backups. The default stays read-only.
-4. Free-form `query` with database-enforced read-only mode by default.
-5. JSON output, `count`, index and foreign-key discovery.
-6. CI, release packaging, and stable compatibility documentation.
+1. `insert` and backup restore, with preview and confirmation.
+2. Import and export (CSV, JSON).
+3. Free-form `query` with database-enforced read-only mode by default.
+4. JSON output, `count`, index and foreign-key discovery.
+5. CI, release packaging, and stable compatibility documentation.
 
-See `docs/ROADMAP.md` for status.
+See `doc/docs/ROADMAP.md` for status.
 
 The roadmap is aspirational. A feature should be treated as available only when it has been implemented and verified.
 
@@ -293,7 +286,7 @@ AI coding assistants may be used to help develop QueryPal, but they must follow 
 - Preserve working behavior unless a change is required.
 - Prefer small, reviewable edits.
 - Parameterize SQL values and validate identifiers.
-- Preserve the read-only-by-default policy. Writes, when added, must be opt-in per profile with a dry-run first.
+- Preserve the read-only-by-default policy. Writes must remain opt-in per profile and preview changes before applying them.
 - Add tests and report actual test results.
 - Avoid unnecessary dependencies and premature abstractions.
 - Explain unfamiliar TypeScript concepts so contributors can understand the code.

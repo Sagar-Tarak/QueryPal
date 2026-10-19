@@ -1,5 +1,3 @@
-
-
 import type { Pool } from "pg";
 
 export interface DatabaseTable {
@@ -7,10 +5,7 @@ export interface DatabaseTable {
   name: string;
 }
 
-export async function listTables(
-  pool: Pool,
-  schema?: string,
-): Promise<DatabaseTable[]> {
+export async function listTables(pool: Pool, schema?: string): Promise<DatabaseTable[]> {
   const result = await pool.query<{
     table_schema: string;
     table_name: string;

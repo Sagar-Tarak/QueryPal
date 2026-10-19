@@ -9,7 +9,7 @@ import {
 } from "../config/profiles.js";
 import { saveProfile } from "../config/save-profile.js";
 import { checkConnection } from "../database/postgres/check-connection.js";
-import { createPostgresPool } from "../database/postgres/client.js";
+import { withPostgresPool } from "../database/postgres/client.js";
 import { explainError } from "../database/postgres/errors.js";
 import { editText } from "./edit-text.js";
 import { Panel } from "./panel.js";
@@ -27,7 +27,8 @@ const FIELDS = [
 type FieldKey = (typeof FIELDS)[number]["key"];
 
 const KEYRING_ROW = FIELDS.length;
-const SAVE_ROW = FIELDS.length + 1;
+const ACCESS_ROW = FIELDS.length + 1;
+const SAVE_ROW = FIELDS.length + 2;
 
 type Status =
   | { kind: "idle" }
@@ -63,6 +64,7 @@ export function FormScreen(props: {
     password: "",
   });
   const [keyring, setKeyring] = useState(existing ? existing.passwordStorage === "keyring" : true);
+  const [readwrite, setReadwrite] = useState(existing?.accessLevel === "readwrite");
   const [touched, setTouched] = useState(!!existing); // true once the user chose the keyring option
   const [row, setRow] = useState(firstRow);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
@@ -80,9 +82,11 @@ export function FormScreen(props: {
     const name = values.name.trim();
 
     if (!name) return "Give the profile a name.";
-    if (!editing && config.profiles[name]) return `Profile "${name}" already exists. Edit it from the list instead.`;
+    if (!editing && config.profiles[name])
+      return `Profile "${name}" already exists. Edit it from the list instead.`;
     if (!values.host.trim()) return "Host is required.";
-    if (!/^\d+$/.test(values.port) || Number(values.port) > 65535) return "Port must be a number from 0 to 65535.";
+    if (!/^\d+$/.test(values.port) || Number(values.port) < 1 || Number(values.port) > 65535)
+      return "Port must be a number from 1 to 65535.";
     if (!values.database.trim()) return "Database name is required.";
     if (!values.user.trim()) return "User is required.";
 
@@ -103,6 +107,7 @@ export function FormScreen(props: {
       port: Number(values.port),
       database: values.database.trim(),
       user: values.user.trim(),
+      accessLevel: readwrite ? ("readwrite" as const) : ("read" as const),
     };
     // While editing, an empty password field means "keep the current one".
     const changed = !editing || values.password !== "";
@@ -116,15 +121,15 @@ export function FormScreen(props: {
     if (!saveAnyway) {
       setStatus({ kind: "busy", text: "Testing connection…" });
 
-      const pool = createPostgresPool(buildConnectionString(profile, password));
-
       try {
-        await checkConnection(pool);
+        await withPostgresPool(
+          buildConnectionString(profile, password),
+          profile.accessLevel ?? "read",
+          checkConnection,
+        );
       } catch (error) {
         setStatus({ kind: "failed", text: explainError(error) });
         return;
-      } finally {
-        await pool.end();
       }
     }
 
@@ -172,12 +177,16 @@ export function FormScreen(props: {
         setKeyring((k) => !k);
         setTouched(true);
       }
+    } else if (row === ACCESS_ROW) {
+      if (input === " " || key.return || key.leftArrow || key.rightArrow) {
+        setReadwrite((value) => !value);
+      }
     } else if (key.return) {
       void submit(status.kind === "failed");
     }
   });
 
-  const width = Math.min(Math.max(columns - 4, 44), 76);
+  const width = Math.max(1, Math.min(columns - 2, 76));
   const remote = !isLocalHost(values.host.trim());
   const busy = status.kind === "busy";
 
@@ -187,18 +196,19 @@ export function FormScreen(props: {
         <Panel
           title={editing ? `Edit profile · ${editing}` : "New connection"}
           width={width}
-          height={FIELDS.length + 9}
+          height={FIELDS.length + 11}
           focused
         >
-          <Text dimColor>Saved to ~/.config/querypal/config.json (the password is never written there).</Text>
+          <Text dimColor>
+            Saved to ~/.config/querypal/config.json (the password is never written there).
+          </Text>
           <Text> </Text>
 
           {FIELDS.map((field, i) => {
             const focused = row === i;
             const value = values[field.key];
             const shown = field.key === "password" ? "*".repeat(value.length) : value;
-            const placeholder =
-              field.key === "password" && editing ? "(unchanged)" : field.hint;
+            const placeholder = field.key === "password" && editing ? "(unchanged)" : field.hint;
 
             return (
               <Text key={field.key} wrap="truncate-end">
@@ -215,9 +225,20 @@ export function FormScreen(props: {
           <Text> </Text>
           <Text wrap="truncate-end">
             <Text bold={row === KEYRING_ROW} color={row === KEYRING_ROW ? theme.accent : undefined}>
-              {(row === KEYRING_ROW ? "› " : "  ") + (keyring ? "[x]" : "[ ]")} Save the password in the OS keyring
+              {(row === KEYRING_ROW ? "› " : "  ") + (keyring ? "[x]" : "[ ]")} Save the password in
+              the OS keyring
             </Text>
-            {remote && <Text color={keyring ? theme.error : undefined} dimColor={!keyring}>{keyring ? "  remote host: not recommended" : "  (remote: asked each time)"}</Text>}
+            {remote && (
+              <Text color={keyring ? theme.error : undefined} dimColor={!keyring}>
+                {keyring ? "  remote host: not recommended" : "  (remote: asked each time)"}
+              </Text>
+            )}
+          </Text>
+          <Text wrap="truncate-end">
+            <Text bold={row === ACCESS_ROW} color={row === ACCESS_ROW ? theme.accent : undefined}>
+              {(row === ACCESS_ROW ? "› " : "  ") + (readwrite ? "[x]" : "[ ]")} Allow writes for
+              this profile
+            </Text>
           </Text>
           <Text
             bold
@@ -226,7 +247,12 @@ export function FormScreen(props: {
           >
             {`  ${status.kind === "failed" ? "[ Save anyway ]" : "[ Test & save ]"}  `}
           </Text>
-          <Text wrap="truncate-end" color={status.kind === "busy" ? "yellow" : status.kind === "idle" ? undefined : theme.error}>
+          <Text
+            wrap="truncate-end"
+            color={
+              status.kind === "busy" ? "yellow" : status.kind === "idle" ? undefined : theme.error
+            }
+          >
             {status.kind === "idle"
               ? " "
               : status.kind === "failed"
@@ -234,7 +260,9 @@ export function FormScreen(props: {
                 : status.text}
           </Text>
           <Text dimColor wrap="truncate-end">
-            {status.kind === "failed" ? "Enter on Save saves it anyway. Change a field to test again." : " "}
+            {status.kind === "failed"
+              ? "Enter on Save saves it anyway. Change a field to test again."
+              : " "}
           </Text>
         </Panel>
       </Box>
@@ -243,7 +271,12 @@ export function FormScreen(props: {
         hints={
           busy
             ? [["…", "working"]]
-            : [["↑↓/tab", "field"], ["enter", row === SAVE_ROW ? "test & save" : "next"], ["space", "toggle"], ["esc", "cancel"]]
+            : [
+                ["↑↓/tab", "field"],
+                ["enter", row === SAVE_ROW ? "test & save" : "next"],
+                ["space", "toggle"],
+                ["esc", "cancel"],
+              ]
         }
       />
     </Box>

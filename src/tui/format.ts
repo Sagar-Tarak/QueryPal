@@ -63,7 +63,10 @@ export function formatTable(
   let used = 0;
 
   for (const column of all.slice(first)) {
-    const wanted = Math.max(column.length, ...records.map((record) => cellText(record[column]).length));
+    const wanted = Math.max(
+      column.length,
+      ...records.map((record) => cellText(record[column]).length),
+    );
     const width = Math.min(clamp(wanted, MIN_CELL, MAX_CELL), totalWidth);
     const need = width + (chosen.length ? 1 : 0);
 

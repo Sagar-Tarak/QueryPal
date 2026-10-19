@@ -1,5 +1,3 @@
-
-
 import { describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import { findRecords } from "../../src/database/postgres/find-records.js";

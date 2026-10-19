@@ -22,9 +22,11 @@ Backend and frontend developers who need to inspect a database but may not know 
 - `querypal tables [--schema <name>]`
 - `querypal describe <tableName> [--schema <name>]`
 - `querypal find <tableName> <column=value> [--limit <number>] [--schema <name>]`
+- `querypal update <tableName> <change...> --where <condition>`
+- `querypal delete <tableName> --where <condition>`
 - Global: `--profile <name>`
 
-The prototype is not a stable release and does not implement every roadmap feature.
+The prototype is not a stable release. `insert`, backup restore, arbitrary SQL, and import/export are not implemented.
 
 ## Direction
 QueryPal is meant to become a terminal tool for exploring **and editing** PostgreSQL data. A terminal UI is the main interactive front end; the commands stay for scripts. Editing is opt-in per profile and always previews first. See `ROADMAP.md`.
@@ -39,15 +41,16 @@ Connections come from saved profiles (`~/.config/querypal/config.json`, created 
 - Do not concatenate filter values into SQL.
 - Validate table and column names against PostgreSQL metadata.
 - Limit result counts.
-- No write commands or arbitrary SQL yet. When added: per-profile opt-in, dry-run preview, one transaction, backup of changed rows, and `update`/`delete` only with a filter.
+- Writes require per-profile opt-in, show a preview, run in one transaction, save a private backup, and require a filter. A filter matching every row also requires `--all`.
 - Avoid exposing credentials in errors.
 
 ## Architecture
 - `src/index.ts`: process entry point. `.env` is loaded only by `pnpm dev`, not by the installed command.
 - `src/cli.ts`: command registration and lifecycle.
-- `src/config/`: profiles, password lookup, keyring, setup wizard.
+- `src/config/`: profiles and password lookup; the TUI owns setup screens.
 - `src/database/postgres/`: PostgreSQL client and operations.
-- `tests/unit/`: fast automated tests.
+- `src/tui/`: browser, profile screens, and setup form.
+- `tests/unit/` and `tests/integration/`: automated checks.
 - `docs/`: project decisions and command/security documentation.
 
 ## Definition of done

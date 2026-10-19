@@ -3,6 +3,7 @@ import { buildConnectionString, loadConfig } from "./profiles.js";
 
 export interface ResolvedConnection {
   connectionString: string;
+  accessLevel: "read" | "readwrite";
   // Where it came from, for messages like `querypal test`.
   source: string;
 }
@@ -28,6 +29,7 @@ export async function resolveConnection(
 
   return {
     connectionString: withDatabase(resolved.connectionString, database),
+    accessLevel: resolved.accessLevel,
     source: `${resolved.source}, database "${database}"`,
   };
 }
@@ -35,7 +37,11 @@ export async function resolveConnection(
 // Order: --profile, DATABASE_URL, default profile, first-run setup.
 async function pickConnection(profileName?: string): Promise<ResolvedConnection> {
   if (!profileName && process.env.DATABASE_URL) {
-    return { connectionString: process.env.DATABASE_URL, source: "DATABASE_URL" };
+    return {
+      connectionString: process.env.DATABASE_URL,
+      accessLevel: "read",
+      source: "DATABASE_URL",
+    };
   }
 
   const config = await loadConfig();
@@ -58,6 +64,7 @@ async function pickConnection(profileName?: string): Promise<ResolvedConnection>
 
     return {
       connectionString: saved ? withDatabase(connectionString, saved) : connectionString,
+      accessLevel: profile.accessLevel ?? "read",
       source: `profile "${name}"${profileName ? "" : " (default)"}${saved ? `, database "${saved}" (saved)` : ""}`,
     };
   }
@@ -71,7 +78,11 @@ async function pickConnection(profileName?: string): Promise<ResolvedConnection>
       throw new Error("Setup cancelled.");
     }
 
-    return { connectionString: setup.connectionString, source: `profile "${setup.name}" (new)` };
+    return {
+      connectionString: setup.connectionString,
+      accessLevel: setup.accessLevel,
+      source: `profile "${setup.name}" (new)`,
+    };
   }
 
   throw new Error("No database configured. Run: querypal init, or set DATABASE_URL.");

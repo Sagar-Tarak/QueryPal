@@ -1,6 +1,6 @@
 # Try QueryPal
 
-QueryPal is a terminal tool for exploring a PostgreSQL database: browse tables, search rows, and manage connection profiles. It is an early test build. **It only reads data today; there are no write commands.**
+QueryPal is a terminal tool for exploring a PostgreSQL database: browse tables, search rows, and manage connection profiles. It is an early test build. Reads are the default; `update` and `delete` are available after explicitly enabling writes for a saved profile.
 
 ## 1. Install (macOS or Linux)
 
@@ -26,9 +26,9 @@ npm install -g --prefix ~/.local ./querypal-0.1.0.tgz
 
 Works on Apple Silicon and Intel Macs. A terminal at least 100 columns by 30 rows is comfortable. 80×24 works but is cramped.
 
-## 2. Use a test database, and a read-only login
+## 2. Use a test database and a restricted login
 
-Point QueryPal at a development or test database, not production. For extra safety, give it a login that can only read. In `psql`:
+Point QueryPal at a development or test database, not production. A read-only login is best for browsing. If you enable writes, use a separate restricted login with only the needed update/delete permissions. In `psql`:
 
 ```sql
 CREATE ROLE querypal LOGIN PASSWORD 'choose-a-password';
@@ -73,6 +73,8 @@ querypal test                   # check the connection, show which one is used
 querypal tables [-s schema]
 querypal describe <table>       # or schema.table
 querypal find <table> col=value [-l 20]
+querypal update <table> name=value --where id=7
+querypal delete <table> --where id=7
 querypal profile list | use <name> | remove <name>
 querypal use <profile> [database]
 querypal -p <profile> tables    # one command on another profile
@@ -104,4 +106,4 @@ On a Mac, also open **Keychain Access**, search for `querypal`, and delete the e
 
 ## Known limits
 
-PostgreSQL only. Read-only. Free-text row search checks every column, so it can be slow on very large tables. No mouse support. Not security-audited: use a dev database and a read-only login.
+PostgreSQL only. Reads are the default; writes require an opted-in profile. Free-text row search checks every column, so it can be slow on very large tables. No mouse support. Not security-audited: use a dev database and a restricted login (read-only unless you need writes).

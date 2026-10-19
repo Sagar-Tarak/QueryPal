@@ -8,9 +8,13 @@ const wait = () => new Promise((resolve) => setTimeout(resolve, 60));
 const ROWS = Array.from({ length: 20 }, (_, i) => ({ id: i + 1, name: `user${i + 1}` }));
 
 // Answers by SQL text: connection info, table list, column list, one page of rows, or a search.
-const fakePool = (rows: Record<string, unknown>[] = ROWS, describedColumns = 2) =>
+const fakePool = (
+  rows: Record<string, unknown>[] = ROWS,
+  describedColumns = 2,
+  primaryKeys: string[] = [],
+) =>
   ({
-    query: vi.fn(async (sql: string) => {
+    query: vi.fn(async (sql: string, params?: unknown[]) => {
       if (sql.includes("current_database")) {
         return { rows: [{ database: "shop", user: "me", version: "17.1" }] };
       }
@@ -40,8 +44,18 @@ const fakePool = (rows: Record<string, unknown>[] = ROWS, describedColumns = 2) 
           rows:
             describedColumns === 2
               ? [
-                  { column_name: "id", data_type: "integer", is_nullable: "NO", column_default: null },
-                  { column_name: "name", data_type: "text", is_nullable: "YES", column_default: null },
+                  {
+                    column_name: "id",
+                    data_type: "integer",
+                    is_nullable: "NO",
+                    column_default: null,
+                  },
+                  {
+                    column_name: "name",
+                    data_type: "text",
+                    is_nullable: "YES",
+                    column_default: null,
+                  },
                 ]
               : Array.from({ length: describedColumns }, (_, i) => ({
                   column_name: `col_${i}`,
@@ -52,13 +66,21 @@ const fakePool = (rows: Record<string, unknown>[] = ROWS, describedColumns = 2) 
         };
       }
 
+      if (sql.includes("information_schema.table_constraints")) {
+        return { rows: primaryKeys.map((column_name) => ({ column_name })) };
+      }
+
       if (sql.includes("information_schema.columns")) {
         return { rows: [{ column_name: "id" }, { column_name: "name" }] };
       }
 
-      // browsing and searching both page with LIMIT/OFFSET over the same rows
+      // This fixture has no primary key, so browsing and searching use LIMIT/OFFSET.
       const limit = Number(/LIMIT (\d+)/.exec(sql)?.[1]);
-      const offset = Number(/OFFSET (\d+)/.exec(sql)?.[1]);
+      const offset = Number(/OFFSET (\d+)/.exec(sql)?.[1] ?? 0);
+
+      if (sql.includes('"id" > $1')) {
+        return { rows: rows.filter((row) => Number(row.id) > Number(params?.[0])).slice(0, limit) };
+      }
 
       return { rows: rows.slice(offset, offset + limit) };
     }),
@@ -86,10 +108,7 @@ describe("formatRows", () => {
   });
 
   it("should fit every line inside the width and mark NULL and dates", () => {
-    const lines = formatRows(
-      [{ id: 1, note: null, at: new Date("2026-10-17T10:50:35.179Z") }],
-      40,
-    );
+    const lines = formatRows([{ id: 1, note: null, at: new Date("2026-10-17T10:50:35.179Z") }], 40);
 
     expect(lines).toHaveLength(2);
     expect(lines.every((line) => line.length <= 40)).toBe(true);
@@ -126,7 +145,12 @@ describe("wide tables", () => {
 
 describe("column sizing", () => {
   const records = [
-    { id: "02a3a1ae-0b6c-4d52-9f2e-7a1c3d4e5f60", name: "TEJAS ENTERPRISES PVT LTD", n: 7, flag: false },
+    {
+      id: "02a3a1ae-0b6c-4d52-9f2e-7a1c3d4e5f60",
+      name: "TEJAS ENTERPRISES PVT LTD",
+      n: 7,
+      flag: false,
+    },
   ];
 
   it("should give long values room instead of cutting them at 10 characters", () => {
@@ -153,7 +177,9 @@ describe("column sizing", () => {
   it("should give spare width back to columns that were cut", () => {
     const grid = formatTable([{ a: "y".repeat(40), b: "z".repeat(40) }], 100)!;
 
-    expect(grid.rows[0]![0]!.text.length + 1 + grid.rows[0]![1]!.text.length).toBeLessThanOrEqual(100);
+    expect(grid.rows[0]![0]!.text.length + 1 + grid.rows[0]![1]!.text.length).toBeLessThanOrEqual(
+      100,
+    );
     expect(grid.rows[0]![0]!.text.length).toBeGreaterThan(28);
   });
 });
@@ -186,6 +212,19 @@ describe("visibleWindow", () => {
 });
 
 describe("App", () => {
+  it("labels keyset pages by page number instead of claiming absolute row positions", async () => {
+    const { lastFrame, stdin } = render(<App pool={fakePool(ROWS, 2, ["id"])} />);
+
+    await wait();
+    await press(stdin, "\r");
+    expect(lastFrame()).toContain("page 1 · 12 rows");
+
+    await press(stdin, "n");
+    expect(lastFrame()).toContain("page 2 · 8 rows");
+    expect(lastFrame()).not.toContain("rows 13–20");
+    expect(lastFrame()).toContain("Row 1 on page 2");
+  });
+
   it("should show the connection in the header, the tables, and the columns", async () => {
     const { lastFrame } = render(<App pool={fakePool()} />);
 
@@ -287,7 +326,9 @@ describe("App", () => {
   });
 
   describe("a table with many columns", () => {
-    const WIDE = [Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`column_${i}`, `value_${i}`]))];
+    const WIDE = [
+      Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`column_${i}`, `value_${i}`])),
+    ];
 
     it("should scroll the columns sideways with the arrow keys", async () => {
       const { lastFrame, stdin } = await open(WIDE);
@@ -324,7 +365,17 @@ describe("App", () => {
   it("should zoom a row far down the page, not only the first few", async () => {
     const { lastFrame, stdin } = await open();
 
-    await press(stdin, "\r", "\u001B[B", "\u001B[B", "\u001B[B", "\u001B[B", "\u001B[B", "\u001B[B", "\r");
+    await press(
+      stdin,
+      "\r",
+      "\u001B[B",
+      "\u001B[B",
+      "\u001B[B",
+      "\u001B[B",
+      "\u001B[B",
+      "\u001B[B",
+      "\r",
+    );
 
     expect(lastFrame()).toContain("[4] Row 7");
     expect(lastFrame()).toContain("name  user7");
@@ -370,7 +421,9 @@ describe("App", () => {
       await press(stdin, "f", ...type("user"), "\r");
 
       expect(lastFrame()).toContain("find user");
-      expect(sqlOf(pool).some((sql) => sql.includes('"id"::text ILIKE $1 OR "name"::text ILIKE $1'))).toBe(true);
+      expect(
+        sqlOf(pool).some((sql) => sql.includes('"id"::text ILIKE $1 OR "name"::text ILIKE $1')),
+      ).toBe(true);
     });
 
     it("should find rows by text in one column", async () => {

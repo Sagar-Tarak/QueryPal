@@ -9,15 +9,16 @@
 - [x] Password handling: OS keyring (opt-in, remote hosts default to no), `QUERYPAL_PASSWORD`, hidden prompt
 - [x] `build` script and `bin` entry
 - [x] Unit tests
-
-## Next
-- [ ] Integration tests using an explicitly configured test database (Docker PostgreSQL)
-- [ ] Terminal UI: table list, row browser, schema panel (read-only first)
+- [x] Integration tests using an explicitly configured test database
+- [x] Terminal UI: table list, row browser, schema panel
 
 ## Editing data
-- [ ] Per-profile access level (`read` default, `readwrite` opt-in); reads run in a `READ ONLY` transaction
-- [ ] `insert`, `update`, `delete` with dry-run preview, row count, confirmation, one transaction, and a backup of affected rows
-- [ ] `update` and `delete` require a filter; changing every row needs an explicit flag
+- [x] Per-profile access level (`read` default, `readwrite` opt-in); read-only sessions use PostgreSQL's transaction read-only default
+- [x] Integration check for PostgreSQL read-only enforcement (`QUERYPAL_TEST_DATABASE_URL=... pnpm test:integration`)
+- [ ] `insert` with preview, confirmation, transaction, and backup
+- [ ] Restore a saved update/delete backup
+- [x] CLI `update` and `delete` with preview, row cap, confirmation, transaction, and private backup of directly affected rows
+- [x] `update` and `delete` require a filter; whole-table matches also require `--all`
 - [ ] Local history of executed writes (no passwords)
 - [ ] `import` and `export` (CSV, JSON), `upsert`
 - [ ] Free-form `query`, read-only by default, with row cap and timeout

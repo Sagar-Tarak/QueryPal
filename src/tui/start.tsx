@@ -10,17 +10,27 @@ const requireTerminal = () => {
 
 // Takes over the whole terminal (alternate screen, like vim or htop) and restores it on exit.
 // With no connection it opens on the profiles list (or the form, if asked), so one can be set up.
-export async function startTui(connection: Connection | null, start: Screen = "browser"): Promise<void> {
+export async function startTui(
+  connection: Connection | null,
+  start: Screen = "browser",
+): Promise<void> {
   requireTerminal();
 
-  await render(<Root initial={connection} start={start} />, { alternateScreen: true }).waitUntilExit();
+  await render(<Root initial={connection} start={start} />, {
+    alternateScreen: true,
+  }).waitUntilExit();
 }
 
 // The connection form on its own: returns the saved profile, or null if cancelled.
-export async function runSetupScreen(): Promise<{ name: string; connectionString: string } | null> {
+export async function runSetupScreen(): Promise<{
+  name: string;
+  connectionString: string;
+  accessLevel: "read" | "readwrite";
+} | null> {
   requireTerminal();
 
-  let result: { name: string; connectionString: string } | null = null;
+  let result: { name: string; connectionString: string; accessLevel: "read" | "readwrite" } | null =
+    null;
 
   await render(
     <Root

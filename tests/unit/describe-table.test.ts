@@ -1,5 +1,3 @@
-
-
 import { describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import { describeTable } from "../../src/database/postgres/describe-table.js";
@@ -42,10 +40,10 @@ describe("describeTable", () => {
       },
     ]);
 
-    expect(pool.query).toHaveBeenCalledWith(
-      expect.stringContaining("information_schema.columns"),
-      ["public", "users"],
-    );
+    expect(pool.query).toHaveBeenCalledWith(expect.stringContaining("information_schema.columns"), [
+      "public",
+      "users",
+    ]);
   });
 
   it("should query the given schema", async () => {
@@ -55,9 +53,6 @@ describe("describeTable", () => {
 
     await describeTable(pool, "orders", "sales");
 
-    expect(pool.query).toHaveBeenCalledWith(expect.any(String), [
-      "sales",
-      "orders",
-    ]);
+    expect(pool.query).toHaveBeenCalledWith(expect.any(String), ["sales", "orders"]);
   });
 });

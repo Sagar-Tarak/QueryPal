@@ -23,6 +23,7 @@ describe("resolveConnection", () => {
 
     expect(await resolveConnection()).toEqual({
       connectionString: "postgresql://env/db",
+      accessLevel: "read",
       source: "DATABASE_URL",
     });
   });
@@ -32,6 +33,7 @@ describe("resolveConnection", () => {
 
     expect(await resolveConnection()).toEqual({
       connectionString: "postgresql://me:secret@db.local:5433/app",
+      accessLevel: "read",
       source: 'profile "local" (default)',
     });
   });
@@ -44,6 +46,14 @@ describe("resolveConnection", () => {
 
     expect(resolved.connectionString).toContain("db.local");
     expect(resolved.source).toBe('profile "local"');
+  });
+
+  it("should return a profile's explicit read-write access level", async () => {
+    await saveConfig(
+      addProfile({ profiles: {} }, "local", { ...profile, accessLevel: "readwrite" }),
+    );
+
+    expect((await resolveConnection("local")).accessLevel).toBe("readwrite");
   });
 
   it("should swap only the database name, keeping user, password and host", async () => {

@@ -6,10 +6,7 @@ export const promptContext = { output: process.stderr };
 
 // OS keyring (only if the profile opted in), then the env variable. Never prompts,
 // so a full-screen UI can ask for the password itself.
-export function lookupPassword(
-  profileName: string,
-  storage?: "keyring" | "prompt",
-): string | null {
+export function lookupPassword(profileName: string, storage?: "keyring" | "prompt"): string | null {
   const saved = storage === "keyring" ? readSecret(profileName) : null;
 
   return saved ?? process.env.QUERYPAL_PASSWORD ?? null;
@@ -30,8 +27,5 @@ export async function getPassword(
     throw new Error("No password available. Set QUERYPAL_PASSWORD.");
   }
 
-  return password(
-    { message: `Password for profile "${profileName}":`, mask: "*" },
-    promptContext,
-  );
+  return password({ message: `Password for profile "${profileName}":`, mask: "*" }, promptContext);
 }

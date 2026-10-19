@@ -1,24 +1,16 @@
 # Architecture
 
+```text
+index.ts → cli.ts → config/* → database/postgres/client.ts
+             ├→ cli/data-commands.ts → database/postgres/*
+             └→ tui/* → database/postgres/*
 ```
-index.ts → cli.ts → config/* (which database, which password) → database/postgres/* (queries) → output
-```
 
-1. `src/index.ts` starts Commander. It does not read `.env`: only `pnpm dev` loads one (`tsx --env-file-if-exists=.env`), so an installed `querypal` never picks up a `.env` from the folder it runs in.
-2. `src/cli.ts` defines commands and owns the lifecycle: `guard` prints failures in one format, `withPool` resolves the connection, opens a pool, runs the command, and always closes the pool.
-3. `src/config/` decides what to connect to:
-   - `connection.ts`: order is `--profile`, `DATABASE_URL`, default profile, setup wizard.
-   - `profiles.ts`: reads and writes `config.json`, builds the connection string (URL-encoded).
-   - `password.ts`: keyring, then `QUERYPAL_PASSWORD`, then a hidden prompt.
-   - `keyring.ts`: thin wrapper over `@napi-rs/keyring`. It never throws, so a missing keyring is a fallback, not a crash.
-   - `setup.ts`: the `init` wizard.
-4. `src/database/postgres/` has one file per query. Each takes a `Pool` and returns data. It never prints.
+- `src/index.ts` starts Commander. `.env` is loaded by `pnpm dev`, not by an installed `querypal` command.
+- `src/cli.ts` wires commands and resolves connections. `src/cli/data-commands.ts` handles PostgreSQL command registration and output; `src/cli/parse-column-value.ts` owns shared filter syntax.
+- `src/config/` loads profiles, resolves the connection and password, and handles profile storage. Connection priority is `--profile`, `DATABASE_URL`, the default profile, then the setup screen in an interactive terminal.
+- `src/database/postgres/` owns PostgreSQL queries and returns data without printing. `client.ts` creates pools and guarantees cleanup for short-lived operations. The TUI and CLI reuse the query functions.
+- `src/tui/` contains the interactive browser, profile screens, and setup form. It calls the same PostgreSQL functions and manages pools it opens itself.
+- `mutate-records.ts` owns update/delete validation, preview, row limits, transaction handling, concurrency checks, and private local backups. Writes require a read-write profile; read-only is the default.
 
-Rules:
-- `cli.ts` contains no SQL.
-- `database/postgres/*` contains no printing, so the same functions can serve a future terminal UI.
-- Output formatting is still inline in `cli.ts`; a separate `output/` module will be added when JSON or table output arrives.
-
-Planned: a `safety/` module (access level, identifier validation, row caps) that every write must pass through, and a `tui/` front end that calls the same database functions as the commands.
-
-Keep abstractions proportional to current needs; do not introduce a generic multi-database framework before a second adapter exists.
+Keep database policy beside the database operation that enforces it. Add a shared layer only when more than one feature needs it; do not build a generic database framework before another database adapter exists.

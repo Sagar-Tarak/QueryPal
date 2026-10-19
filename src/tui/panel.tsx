@@ -12,7 +12,24 @@ export function Panel(props: {
   children?: ReactNode;
 }) {
   const color = props.focused ? theme.accent : theme.border;
-  const title = props.title.length > props.width - 6 ? `${props.title.slice(0, props.width - 7)}…` : props.title;
+
+  if (props.width < 12) {
+    return (
+      <Box flexDirection="column" width={props.width} height={props.height} overflow="hidden">
+        <Text bold color={color} wrap="truncate-end">
+          {props.title}
+        </Text>
+        <Box flexDirection="column" width={props.width} height={props.height - 1} overflow="hidden">
+          {props.children}
+        </Box>
+      </Box>
+    );
+  }
+
+  const title =
+    props.title.length > props.width - 6
+      ? `${props.title.slice(0, props.width - 7)}…`
+      : props.title;
   const dashes = "─".repeat(Math.max(0, props.width - title.length - 5));
 
   return (

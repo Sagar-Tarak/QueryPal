@@ -1,12 +1,11 @@
 import { Box, useApp, useWindowSize } from "ink";
 import type { Pool } from "pg";
 import { useEffect, useRef, useState } from "react";
-import { buildConnectionString } from "../config/profiles.js";
+import { buildConnectionString, loadConfig, type Config } from "../config/profiles.js";
 import { App } from "./app.js";
 import type { Connection } from "./connect.js";
 import { FormScreen, type SavedProfile } from "./form-screen.js";
 import { ProfilesScreen } from "./profiles-screen.js";
-import { loadConfig, type Config } from "../config/profiles.js";
 
 export type Screen = "browser" | "profiles" | "form";
 
@@ -15,12 +14,18 @@ export type Screen = "browser" | "profiles" | "form";
 export function Root(props: {
   initial: Connection | null;
   start: Screen;
-  onSetupSaved?: (saved: { name: string; connectionString: string }) => void;
+  onSetupSaved?: (saved: {
+    name: string;
+    connectionString: string;
+    accessLevel: "read" | "readwrite";
+  }) => void;
 }) {
   const { exit } = useApp();
   const { rows } = useWindowSize();
   const [connection, setConnection] = useState(props.initial);
-  const [screen, setScreen] = useState<Screen>(connection ? props.start : props.start === "browser" ? "profiles" : props.start);
+  const [screen, setScreen] = useState<Screen>(
+    connection ? props.start : props.start === "browser" ? "profiles" : props.start,
+  );
   const [editing, setEditing] = useState<string | undefined>();
   const [config, setConfig] = useState<Config>({ profiles: {} });
   const [notice, setNotice] = useState("");
@@ -28,10 +33,8 @@ export function Root(props: {
   const owned = useRef<Pool[]>([]);
 
   useEffect(() => {
-    const pools = owned.current;
-
     return () => {
-      for (const pool of pools) {
+      for (const pool of owned.current) {
         void pool.end();
       }
     };
@@ -61,6 +64,7 @@ export function Root(props: {
       props.onSetupSaved({
         name: result.name,
         connectionString: buildConnectionString(result.profile, result.password),
+        accessLevel: result.profile.accessLevel ?? "read",
       });
       exit();
       return;
@@ -79,6 +83,7 @@ export function Root(props: {
           key={connection.source}
           pool={connection.pool}
           source={connection.source}
+          accessLevel={connection.accessLevel}
           onProfiles={() => {
             setNotice("");
             setScreen("profiles");

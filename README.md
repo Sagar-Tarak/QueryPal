@@ -2,7 +2,7 @@
 
 A terminal tool for exploring PostgreSQL databases. Browse tables, search rows, and manage connection profiles from a full-screen UI, or use plain commands in scripts.
 
-> Early release. **It only reads data: there are no write commands.** Use it on a development or test database, ideally with a read-only login.
+> Early release. Reads are the default. `update` and `delete` require a profile with writes explicitly enabled. Use it on a development or test database, ideally with a restricted login.
 
 ## Install
 
@@ -24,7 +24,9 @@ querypal init    # set up a connection profile
 
 The setup screen asks for host, port, database, user and password, tests the connection, then saves it. The config file (`~/.config/querypal/config.json`) never holds the password. You can save it in the OS keyring (Keychain on macOS), which defaults to on for `localhost` and off for any other host. Otherwise it is asked each time, or read from `QUERYPAL_PASSWORD`.
 
-For safety, connect with a login that can only read:
+Profiles are read-only by default. The setup and edit screens include an explicit **Allow writes** option for `update` and `delete`. Those commands preview changes first and save a private backup. `DATABASE_URL` connections remain read-only.
+
+For browsing, a login that can only read is safest. To use `update` or `delete`, use a separate restricted login with only the required write permissions:
 
 ```sql
 CREATE ROLE querypal LOGIN PASSWORD 'choose-a-password';
@@ -57,6 +59,8 @@ querypal test                   # check the connection and show which one is use
 querypal tables [-s schema]
 querypal describe <table>       # or schema.table
 querypal find <table> col=value [-l 20]
+querypal update <table> field=value [field=value ...] --where col=value [--where col=value] [--yes]
+querypal delete <table> --where col=value [--where col=value] [--yes]
 querypal profile list | use <name> | remove <name>
 querypal use <profile> [database]
 querypal -p <profile> tables    # one command on another profile
@@ -65,9 +69,13 @@ querypal -d <database> tables   # same server, another database
 
 Which connection is used, first match wins: `-p` profile, the `DATABASE_URL` environment variable, the default profile, then the setup screen.
 
+Updates and deletes show the matching rows first, ask before changing data in a terminal, and save a private backup under `~/.local/share/querypal/backups`. In scripts, the default is preview only; pass `--yes` to apply. Changes are capped at 100 rows and require a write-enabled profile. Use `--all` when the filter matches every row.
+
+Example: `querypal update users name='Alice Smith' --where id=7`, or `querypal delete users --where id=7`. Add another `--where col=value` to narrow the match. Put `-p <profile>` before the command to choose a write-enabled profile.
+
 ## Limits
 
-PostgreSQL only. Read-only. Searching text in every column checks each column, so it can be slow on very large tables. No mouse support. Not security-audited.
+PostgreSQL only. Reads are the default; `update` and `delete` require a write-enabled profile. Searching text in every column checks each column, so it can be slow on very large tables. No mouse support. Not security-audited.
 
 ## Uninstall
 

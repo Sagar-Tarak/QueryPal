@@ -1,5 +1,5 @@
 import { Box, Text, useInput, useWindowSize } from "ink";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { deleteSecret } from "../config/keyring.js";
 import { lookupPassword } from "../config/password.js";
 import {
@@ -12,6 +12,7 @@ import {
 import { explainError } from "../database/postgres/errors.js";
 import { type Connection, openConnection } from "./connect.js";
 import { editText } from "./edit-text.js";
+import { visibleWindow } from "./format.js";
 import { Panel } from "./panel.js";
 import { StatusBar } from "./status-bar.js";
 import { theme } from "./theme.js";
@@ -21,6 +22,12 @@ type Ask =
   | { kind: "password"; name: string; then: (password: string) => void }
   | { kind: "database"; name: string }
   | { kind: "delete"; name: string };
+
+interface DatabasePicker {
+  profile: string;
+  names: string[];
+  selected: number;
+}
 
 export function ProfilesScreen(props: {
   connectedSource?: string;
@@ -35,15 +42,19 @@ export function ProfilesScreen(props: {
   const [config, setConfig] = useState<Config | null>(null);
   const [selected, setSelected] = useState(0);
   const [ask, setAsk] = useState<Ask | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState("");
+  const [databasePicker, setDatabasePicker] = useState<DatabasePicker | null>(null);
+  const databasePassword = useRef("");
   const [message, setMessage] = useState({ text: props.notice ?? "", error: false });
 
   const names = Object.keys(config?.profiles ?? {});
   const name = names[selected];
   const profile = name ? config?.profiles[name] : undefined;
 
-  const reload = () => loadConfig().then(setConfig, (e) => setMessage({ text: explainError(e), error: true }));
+  const reload = () =>
+    loadConfig().then(setConfig, (e) => setMessage({ text: explainError(e), error: true }));
 
   useEffect(() => {
     void reload();
@@ -77,12 +88,16 @@ export function ProfilesScreen(props: {
 
     setBusy(`Connecting to ${name}…`);
 
+    let connection: Connection | undefined;
+
     try {
-      const connection = await openConnection(name, profile, password, database);
+      connection = await openConnection(name, profile, password, database);
 
       await saveConfig(setDefault(config, name, database));
       props.onConnect(connection);
+      connection = undefined;
     } catch (e) {
+      await connection?.pool.end().catch(() => undefined);
       fail(e);
     }
   };
@@ -104,6 +119,38 @@ export function ProfilesScreen(props: {
         error: false,
       });
     } catch (e) {
+      fail(e);
+    }
+  };
+
+  const loadDatabases = async (password: string) => {
+    if (!name || !profile) return;
+
+    setBusy(`Loading databases on ${name}…`);
+    let connection: Connection | undefined;
+
+    try {
+      connection = await openConnection(name, profile, password);
+      const result = await connection.pool.query<{ datname: string }>(`
+        SELECT datname
+        FROM pg_database
+        WHERE datallowconn
+          AND NOT datistemplate
+          AND has_database_privilege(datname, 'CONNECT')
+        ORDER BY datname
+      `);
+      await connection.pool.end();
+      connection = undefined;
+      databasePassword.current = password;
+      setDatabasePicker({
+        profile: name,
+        names: result.rows.map(({ datname }) => datname),
+        selected: 0,
+      });
+      setBusy("");
+      setMessage({ text: "Select a database, or press o to enter its name.", error: false });
+    } catch (e) {
+      await connection?.pool.end().catch(() => undefined);
       fail(e);
     }
   };
@@ -154,10 +201,46 @@ export function ProfilesScreen(props: {
       return;
     }
 
+    if (helpOpen) {
+      if (key.escape || input === "?") setHelpOpen(false);
+      return;
+    }
+
+    if (databasePicker) {
+      if (key.escape) {
+        databasePassword.current = "";
+        setDatabasePicker(null);
+      } else if (key.downArrow) {
+        setDatabasePicker({
+          ...databasePicker,
+          selected: Math.min(databasePicker.selected + 1, databasePicker.names.length - 1),
+        });
+      } else if (key.upArrow) {
+        setDatabasePicker({
+          ...databasePicker,
+          selected: Math.max(databasePicker.selected - 1, 0),
+        });
+      } else if (key.return && databasePicker.names[databasePicker.selected]) {
+        const database = databasePicker.names[databasePicker.selected];
+        const password = databasePassword.current;
+        databasePassword.current = "";
+        setDatabasePicker(null);
+        void connect(password, database);
+      } else if (input === "o") {
+        setDatabasePicker(null);
+        setText("");
+        setAsk({ kind: "database", name: databasePicker.profile });
+      }
+
+      return;
+    }
+
     setMessage((m) => ({ ...m, text: "" }));
 
     if (input === "q") {
       props.onQuit();
+    } else if (input === "?") {
+      setHelpOpen(true);
     } else if (key.escape) {
       props.onBack();
     } else if (key.downArrow) {
@@ -179,13 +262,23 @@ export function ProfilesScreen(props: {
     } else if (input === "o") {
       setText("");
       setAsk({ kind: "database", name });
+    } else if (input === "d") {
+      withPassword((password) => void loadDatabases(password));
     }
   });
 
-  const bodyHeight = Math.max(10, rows - 2);
-  const leftWidth = Math.min(40, Math.max(26, Math.floor(columns * 0.35)));
-  const rightWidth = Math.max(30, columns - leftWidth);
+  const bodyHeight = Math.max(6, rows - 2);
+  const leftWidth = Math.min(
+    Math.min(40, Math.max(26, Math.floor(columns * 0.35))),
+    Math.max(16, columns - 24),
+  );
+  const rightWidth = Math.max(1, columns - leftWidth);
   const isDefault = name !== undefined && name === config?.defaultProfile;
+  const databaseWindow = visibleWindow(
+    databasePicker?.names.length ?? 0,
+    databasePicker?.selected ?? 0,
+    bodyHeight - 2,
+  );
 
   const detail = (label: string, value: string) => (
     <Text key={label} wrap="truncate-end">
@@ -206,29 +299,116 @@ export function ProfilesScreen(props: {
   return (
     <Box flexDirection="column" width={columns} height={rows - 1}>
       <Box height={bodyHeight}>
-        <Panel title={`[1] Profiles ${names.length}`} width={leftWidth} height={bodyHeight} focused>
-          {config && names.length === 0 && <Text dimColor>Press a to add a profile.</Text>}
-          {names.map((n, i) => (
-            <Text
-              key={n}
-              wrap="truncate-end"
-              backgroundColor={i === selected ? theme.selectedBackground : undefined}
-              color={i === selected ? theme.selectedText : undefined}
-            >
-              {`${n === config?.defaultProfile ? "* " : "  "}${n}`}
-            </Text>
-          ))}
+        <Panel
+          title={
+            databasePicker ? `Databases · ${databasePicker.profile}` : `Servers ${names.length}`
+          }
+          width={leftWidth}
+          height={bodyHeight}
+          focused
+        >
+          {databasePicker ? (
+            databasePicker.names.length ? (
+              databasePicker.names
+                .slice(databaseWindow.start, databaseWindow.end)
+                .map((database, visibleIndex) => {
+                  const i = visibleIndex + databaseWindow.start;
+                  return (
+                    <Text
+                      key={database}
+                      wrap="truncate-end"
+                      backgroundColor={
+                        i === databasePicker.selected ? theme.selectedBackground : undefined
+                      }
+                      color={i === databasePicker.selected ? theme.selectedText : undefined}
+                    >
+                      {database}
+                    </Text>
+                  );
+                })
+            ) : (
+              <Text dimColor>No connectable databases found. Press o to enter a name.</Text>
+            )
+          ) : (
+            <>
+              {!config && <Text dimColor>Loading profiles…</Text>}
+              {config && names.length === 0 && <Text dimColor>Press a to add a server.</Text>}
+              {names.map((n, i) => (
+                <Text
+                  key={n}
+                  wrap="truncate-end"
+                  backgroundColor={i === selected ? theme.selectedBackground : undefined}
+                  color={i === selected ? theme.selectedText : undefined}
+                >
+                  {`${n === config?.defaultProfile ? "* " : "  "}${n}`}
+                </Text>
+              ))}
+            </>
+          )}
         </Panel>
 
-        <Panel title={name ? `[2] ${name}` : "[2] Details"} width={rightWidth} height={bodyHeight}>
-          {profile && name ? (
+        <Panel
+          title={
+            helpOpen
+              ? "Keyboard shortcuts"
+              : databasePicker
+                ? "Choose database"
+                : name
+                  ? `[2] ${name}`
+                  : "[2] Details"
+          }
+          width={rightWidth}
+          height={bodyHeight}
+        >
+          {helpOpen ? (
+            <>
+              <Text bold color={theme.accent}>
+                Profiles
+              </Text>
+              <Text>↑ / ↓ Choose a saved profile</Text>
+              <Text>Enter Connect using this profile</Text>
+              <Text>a Add a profile</Text>
+              <Text>e Edit the selected profile</Text>
+              <Text>t Test the connection</Text>
+              <Text>d List databases this profile can connect to</Text>
+              <Text>o Open another database on this server</Text>
+              <Text>x Delete the selected profile</Text>
+              <Text>Esc Return to the previous screen</Text>
+              <Text>q Quit</Text>
+              <Text>? Close this guide</Text>
+            </>
+          ) : databasePicker ? (
+            <>
+              <Text>↑ / ↓ Choose a database on this server</Text>
+              <Text>Enter Connect using the selected database</Text>
+              <Text>o Enter a database name manually</Text>
+              <Text dimColor>Only databases that allow connections are listed.</Text>
+            </>
+          ) : profile && name ? (
             <>
               {detail("Host", `${profile.host}:${profile.port}`)}
-              {detail("Database", isDefault && config?.defaultDatabase ? `${config.defaultDatabase} (saved override; profile says ${profile.database})` : profile.database)}
+              {detail(
+                "Database",
+                isDefault && config?.defaultDatabase
+                  ? `${config.defaultDatabase} (saved override; profile says ${profile.database})`
+                  : profile.database,
+              )}
               {detail("User", profile.user)}
-              {detail("Password", profile.passwordStorage === "keyring" ? "in the OS keyring" : "asked each time (or QUERYPAL_PASSWORD)")}
+              {detail(
+                "Password",
+                profile.passwordStorage === "keyring"
+                  ? "in the OS keyring"
+                  : "asked each time (or QUERYPAL_PASSWORD)",
+              )}
+              {detail(
+                "Access",
+                profile.accessLevel === "readwrite" ? "read and write" : "read only",
+              )}
               {detail("Default", isDefault ? "yes" : "no")}
-              {detail("Connected", props.connectedSource?.startsWith(`profile "${name}"`) ? "yes" : "no")}
+              {detail(
+                "Connected",
+                props.connectedSource?.startsWith(`profile "${name}"`) ? "yes" : "no",
+              )}
             </>
           ) : (
             <Text dimColor>Select a profile to see its details.</Text>
@@ -246,15 +426,26 @@ export function ProfilesScreen(props: {
       <StatusBar
         prompt={prompt}
         hints={[
-          ["↑↓", "select"],
-          ["enter", "connect"],
-          ["a", "add"],
-          ["e", "edit"],
-          ["t", "test"],
-          ["o", "other database"],
-          ["x", "delete"],
-          ["esc", "back"],
-          ["q", "quit"],
+          ...(databasePicker
+            ? ([
+                ["↑↓", "select database"],
+                ["enter", "connect"],
+                ["o", "type name"],
+                ["esc", "back"],
+              ] as [string, string][])
+            : ([
+                ["?", "help"],
+                ["↑↓", "select server"],
+                ["enter", "connect"],
+                ["d", "pick database"],
+                ["o", "type database"],
+                ["a", "add"],
+                ["e", "edit"],
+                ["t", "test"],
+                ["x", "delete"],
+                ["esc", "back"],
+                ["q", "quit"],
+              ] as [string, string][])),
         ]}
       />
     </Box>

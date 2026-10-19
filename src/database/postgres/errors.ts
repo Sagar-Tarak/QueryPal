@@ -1,5 +1,6 @@
 const KNOWN_CODES: Record<string, string> = {
-  ECONNREFUSED: "Connection refused. Is PostgreSQL running, and are the host and port in DATABASE_URL correct?",
+  ECONNREFUSED:
+    "Connection refused. Is PostgreSQL running, and are the host and port in DATABASE_URL correct?",
   ENOTFOUND: "Host not found. Check the host name in DATABASE_URL.",
   ETIMEDOUT: "Connection timed out. Check the host, port and network.",
   "28P01": "Wrong username or password in DATABASE_URL.",
@@ -15,7 +16,7 @@ export function explainError(error: unknown): string {
     return String(error);
   }
 
-  const code = (error as { code?: string }).code;
+  const code = "code" in error && typeof error.code === "string" ? error.code : undefined;
 
   if (code && KNOWN_CODES[code]) {
     return KNOWN_CODES[code];

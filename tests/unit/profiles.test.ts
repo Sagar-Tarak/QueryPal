@@ -60,7 +60,11 @@ describe("profiles", () => {
   });
 
   it("should drop the default and its override when the default profile is removed", () => {
-    const config = setDefault(addProfile(addProfile({ profiles: {} }, "a", profile), "b", profile), "a", "x");
+    const config = setDefault(
+      addProfile(addProfile({ profiles: {} }, "a", profile), "b", profile),
+      "a",
+      "x",
+    );
 
     expect(removeProfile(config, "a")).toEqual({ profiles: { b: profile } });
     expect(removeProfile(config, "b")).toMatchObject({ defaultProfile: "a", defaultDatabase: "x" });

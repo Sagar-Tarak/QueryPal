@@ -1,4 +1,4 @@
-import { deleteSecret, readSecret, saveSecret } from "./keyring.js";
+import { deleteSecret, saveSecret } from "./keyring.js";
 import { addProfile, loadConfig, saveConfig, type Profile } from "./profiles.js";
 
 // Saves a profile and, if asked, its password in the OS keyring. The password never goes into
@@ -15,7 +15,7 @@ export async function saveProfile(options: {
 
   if (wantKeyring) {
     if (password === undefined) {
-      storage = readSecret(name) !== null ? "keyring" : "prompt";
+      storage = "keyring";
     } else if (saveSecret(name, password)) {
       storage = "keyring";
     } else {

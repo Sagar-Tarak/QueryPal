@@ -2,7 +2,6 @@
   "name": "querypal",
   "version": "0.1.0",
   "description": "Terminal tool for exploring PostgreSQL databases: browse tables, search rows, manage connection profiles.",
-  "main": "index.js",
   "bin": {
     "querypal": "dist/index.js"
   },
@@ -17,7 +16,11 @@
     "prepack": "pnpm build",
     "dev": "tsx --env-file-if-exists=.env src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "lint": "eslint src tests --max-warnings=0",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\" package.json tsconfig.json eslint.config.js .prettierrc.json",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\" package.json tsconfig.json eslint.config.js .prettierrc.json",
+    "test": "vitest run",
+    "test:integration": "vitest run tests/integration"
   },
   "keywords": [
     "postgres",
@@ -38,12 +41,19 @@
   },
   "type": "module",
   "devDependencies": {
+    "@eslint/js": "^9.39.0",
     "@types/node": "^26.6.5",
     "@types/pg": "^8.23.1",
     "@types/react": "^19.3.0",
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "eslint": "^9.39.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.5.0",
     "ink-testing-library": "^4.0.0",
+    "prettier": "3.9.10",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "typescript-eslint": "^8.56.1",
     "vitest": "^5.0.5"
   },
   "dependencies": {

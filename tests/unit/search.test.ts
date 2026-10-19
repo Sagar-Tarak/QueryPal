@@ -19,7 +19,9 @@ describe("parseSearch", () => {
   });
 
   it("should keep later = or ~ inside the value", () => {
-    expect(parseSearch("id=a=b", cols)).toEqual({ filter: { column: "id", op: "=", value: "a=b" } });
+    expect(parseSearch("id=a=b", cols)).toEqual({
+      filter: { column: "id", op: "=", value: "a=b" },
+    });
   });
 
   it("should fall back to text when the part before = is not a column", () => {
@@ -97,13 +99,19 @@ const describePool = (names: string[], rows: Record<string, unknown>[] = []) =>
   }) as unknown as Pool;
 
 const lastSelect = (pool: Pool) =>
-  vi.mocked(pool.query).mock.calls.map((c) => c as [string, string[]?]).filter(([sql]) => sql.includes("SELECT *")).at(-1)!;
+  vi
+    .mocked(pool.query)
+    .mock.calls.map((c) => c as [string, string[]?])
+    .filter(([sql]) => sql.includes("SELECT *"))
+    .at(-1)!;
 
 describe("searchRecords", () => {
   it("should search every column with one parameter", async () => {
     const pool = describePool(["id", "name"], [{ id: 1 }]);
 
-    expect(await searchRecords(pool, "users", { text: "cash" }, 20, "public", 40)).toEqual([{ id: 1 }]);
+    expect(await searchRecords(pool, "users", { text: "cash" }, 20, "public", 40)).toEqual([
+      { id: 1 },
+    ]);
 
     const [sql, params] = lastSelect(pool);
 
@@ -111,6 +119,21 @@ describe("searchRecords", () => {
     expect(sql).toContain('FROM "public"."users"');
     expect(sql).toContain("LIMIT 20 OFFSET 40");
     expect(params).toEqual(["%cash%"]);
+  });
+
+  it("should apply the keyset cursor to every column in a text search", async () => {
+    const pool = describePool(["id", "name"]);
+
+    await searchRecords(pool, "users", { text: "cash" }, 10, "public", 0, {
+      orderBy: [{ column: "id", direction: "ASC" }],
+      cursor: [7],
+    });
+
+    const [sql, params] = lastSelect(pool);
+
+    expect(sql).toContain('WHERE ("id"::text ILIKE $1 OR "name"::text ILIKE $1) AND');
+    expect(sql).toContain('"id" > $2');
+    expect(params).toEqual(["%cash%", 7]);
   });
 
   it("should search one column with contains", async () => {
@@ -167,7 +190,9 @@ describe("searchRecords", () => {
     const pool = describePool(["id"]);
 
     await expect(searchRecords(pool, "users", { text: "x" }, 0)).rejects.toThrow("Limit");
-    await expect(searchRecords(pool, "users", { text: "x" }, 5, "public", -1)).rejects.toThrow("Offset");
+    await expect(searchRecords(pool, "users", { text: "x" }, 5, "public", -1)).rejects.toThrow(
+      "Offset",
+    );
     expect(pool.query).not.toHaveBeenCalled();
   });
 });

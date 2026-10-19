@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { explainError } from "../../src/database/postgres/errors.js";
 
-const withCode = (message: string, code: string) =>
-  Object.assign(new Error(message), { code });
+const withCode = (message: string, code: string) => Object.assign(new Error(message), { code });
 
 describe("explainError", () => {
   it("should explain a refused connection even when the message is empty", () => {
@@ -28,8 +27,6 @@ describe("explainError", () => {
   });
 
   it("should fall back to the original message", () => {
-    expect(explainError(new Error("Column \"x\" was not found."))).toBe(
-      'Column "x" was not found.',
-    );
+    expect(explainError(new Error('Column "x" was not found.'))).toBe('Column "x" was not found.');
   });
 });

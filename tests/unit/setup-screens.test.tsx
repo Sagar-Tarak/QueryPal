@@ -14,6 +14,17 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../src/database/postgres/client.js", () => ({
   createPostgresPool: () => ({ query: mocks.query, end: mocks.end }),
+  withPostgresPool: async (
+    _connectionString: string,
+    _accessLevel: string,
+    run: (pool: unknown) => Promise<unknown>,
+  ) => {
+    try {
+      return await run({ query: mocks.query, end: mocks.end });
+    } finally {
+      await mocks.end();
+    }
+  },
 }));
 vi.mock("../../src/config/keyring.js", () => ({
   saveSecret: mocks.saveSecret,
@@ -52,7 +63,17 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("editText", () => {
-  const key = (over: object = {}) => ({ backspace: false, delete: false, ctrl: false, meta: false, return: false, escape: false, tab: false, ...over }) as never;
+  const key = (over: object = {}) =>
+    ({
+      backspace: false,
+      delete: false,
+      ctrl: false,
+      meta: false,
+      return: false,
+      escape: false,
+      tab: false,
+      ...over,
+    }) as never;
 
   it("should add typed characters and remove with backspace or delete", () => {
     expect(editText("ab", "c", key())).toBe("abc");
@@ -76,6 +97,23 @@ describe("saveProfile", () => {
     expect(mocks.saveSecret).toHaveBeenCalledWith("a", "secret");
     expect(JSON.stringify(await loadConfig())).not.toContain("secret");
     expect((await loadConfig()).profiles.a).toMatchObject({ passwordStorage: "keyring" });
+  });
+
+  it("should default saved profiles to read-only", async () => {
+    await saveProfile({ name: "a", profile, password: "secret", wantKeyring: false });
+
+    expect((await loadConfig()).profiles.a?.accessLevel).toBeUndefined();
+  });
+
+  it("should persist explicit read-write access", async () => {
+    await saveProfile({
+      name: "a",
+      profile: { ...profile, accessLevel: "readwrite" },
+      password: "secret",
+      wantKeyring: false,
+    });
+
+    expect((await loadConfig()).profiles.a?.accessLevel).toBe("readwrite");
   });
 
   it("should fall back to asking each time when the keyring is unavailable", async () => {
@@ -103,27 +141,53 @@ describe("saveProfile", () => {
     expect(mocks.deleteSecret).not.toHaveBeenCalled();
   });
 
+  it("should keep keyring storage when the keyring cannot read the unchanged password", async () => {
+    mocks.readSecret.mockReturnValue(null);
+
+    expect((await saveProfile({ name: "a", profile, wantKeyring: true })).storage).toBe("keyring");
+    expect(mocks.deleteSecret).not.toHaveBeenCalled();
+  });
+
   it("should keep the default profile and saved database of the config", async () => {
-    await saveConfig(setDefault(addProfile({ profiles: {} }, "first", profile), "first", "other_db"));
+    await saveConfig(
+      setDefault(addProfile({ profiles: {} }, "first", profile), "first", "other_db"),
+    );
     await saveProfile({ name: "second", profile, password: "x", wantKeyring: false });
 
-    expect(await loadConfig()).toMatchObject({ defaultProfile: "first", defaultDatabase: "other_db" });
+    expect(await loadConfig()).toMatchObject({
+      defaultProfile: "first",
+      defaultDatabase: "other_db",
+    });
   });
 });
 
-const fillForm = async (stdin: { write: (s: string) => void }, over: Partial<Record<string, string>> = {}) => {
+const fillForm = async (
+  stdin: { write: (s: string) => void },
+  over: Partial<Record<string, string>> = {},
+) => {
   const v = { name: "dev", host: "", database: "app", user: "me", password: "pw", ...over };
 
   await press(stdin, ...type(v.name), "\r");
   await press(stdin, ...type(v.host)); // host starts as "localhost": typing appends to it
-  await press(stdin, "\r", "\r", ...type(v.database), "\r", ...type(v.user), "\r", ...type(v.password));
+  await press(
+    stdin,
+    "\r",
+    "\r",
+    ...type(v.database),
+    "\r",
+    ...type(v.user),
+    "\r",
+    ...type(v.password),
+  );
 };
 
 describe("FormScreen", () => {
   const open = async (props: Partial<Parameters<typeof FormScreen>[0]> = {}) => {
     const onSaved = vi.fn();
     const onCancel = vi.fn();
-    const app = render(<FormScreen config={{ profiles: {} }} onSaved={onSaved} onCancel={onCancel} {...props} />);
+    const app = render(
+      <FormScreen config={{ profiles: {} }} onSaved={onSaved} onCancel={onCancel} {...props} />,
+    );
 
     await wait();
 
@@ -137,12 +201,37 @@ describe("FormScreen", () => {
     expect(lastFrame()).toContain("localhost");
     expect(lastFrame()).toContain("5432");
     expect(lastFrame()).toContain("[x] Save the password in the OS keyring");
+    expect(lastFrame()).toContain("[ ] Allow writes for this profile");
+  });
+
+  it("should require an explicit opt-in to save a read-write profile", async () => {
+    const { stdin, onSaved } = await open();
+
+    await fillForm(stdin);
+    await press(stdin, "\u001B[B", "\u001B[B", " ", "\u001B[B", "\r");
+    await wait();
+
+    expect(onSaved.mock.calls[0]?.[0].profile.accessLevel).toBe("readwrite");
   });
 
   it("should mask the password and explain missing fields", async () => {
     const { lastFrame, stdin } = await open();
 
-    await press(stdin, "\u001B[B", "\u001B[B", "\u001B[B", "\u001B[B", "\u001B[B", "s", "e", "c", "\u001B[B", "\u001B[B", "\r");
+    await press(
+      stdin,
+      "\u001B[B",
+      "\u001B[B",
+      "\u001B[B",
+      "\u001B[B",
+      "\u001B[B",
+      "s",
+      "e",
+      "c",
+      "\u001B[B",
+      "\u001B[B",
+      "\u001B[B",
+      "\r",
+    );
 
     expect(lastFrame()).toContain("***");
     expect(lastFrame()).not.toContain("sec");
@@ -150,16 +239,28 @@ describe("FormScreen", () => {
   });
 
   it("should reject a bad port and an existing name", async () => {
-    const { lastFrame, stdin } = await open({ config: addProfile({ profiles: {} }, "dev", profile) });
+    const { lastFrame, stdin } = await open({
+      config: addProfile({ profiles: {} }, "dev", profile),
+    });
 
     await fillForm(stdin);
-    await press(stdin, "\u001B[B", "\u001B[B", "\r");
+    await press(stdin, "\u001B[B", "\u001B[B", "\u001B[B", "\r");
     expect(lastFrame()).toContain('Profile "dev" already exists');
 
     const second = await open();
 
     await press(second.stdin, ..."x", "\r", "\r", ..."a", "\r");
-    await press(second.stdin, "\u001B[B", "\u001B[B", "\u001B[B", "\u001B[B", "\u001B[B", "\r");
+    await press(
+      second.stdin,
+      "\u001B[B",
+      "\u001B[B",
+      "\u001B[B",
+      "\u001B[B",
+      "\u001B[B",
+      "\u001B[B",
+      "\u001B[B",
+      "\r",
+    );
     expect(second.lastFrame()).toContain("Port must be a number");
   });
 
@@ -167,14 +268,14 @@ describe("FormScreen", () => {
     const { lastFrame, stdin, onSaved } = await open();
 
     await fillForm(stdin);
-    await press(stdin, "\u001B[B", "\u001B[B", "\r");
+    await press(stdin, "\u001B[B", "\u001B[B", "\u001B[B", "\r");
     await wait();
 
     expect(onSaved).toHaveBeenCalledTimes(1);
     expect(onSaved.mock.calls[0]![0]).toMatchObject({
       name: "dev",
       password: "pw",
-      profile: { host: "localhost", port: 5432, database: "app", user: "me" },
+      profile: { host: "localhost", port: 5432, database: "app", user: "me", accessLevel: "read" },
     });
     expect(mocks.saveSecret).toHaveBeenCalledWith("dev", "pw");
     expect(mocks.end).toHaveBeenCalled();
@@ -187,7 +288,7 @@ describe("FormScreen", () => {
     const { lastFrame, stdin, onSaved } = await open();
 
     await fillForm(stdin);
-    await press(stdin, "\u001B[B", "\u001B[B", "\r");
+    await press(stdin, "\u001B[B", "\u001B[B", "\u001B[B", "\r");
     await wait();
 
     expect(lastFrame()).toContain("Connection failed: Wrong username or password");
@@ -222,7 +323,10 @@ describe("FormScreen", () => {
 
   it("should keep the name fixed and the password unchanged when editing", async () => {
     mocks.readSecret.mockReturnValue("stored");
-    const config = addProfile({ profiles: {} }, "dev", { ...profile, passwordStorage: "keyring" } as never);
+    const config = addProfile({ profiles: {} }, "dev", {
+      ...profile,
+      passwordStorage: "keyring",
+    } as never);
     const { lastFrame, stdin, onSaved } = await open({ config, editing: "dev" });
 
     expect(lastFrame()).toContain("Edit profile · dev");
@@ -230,12 +334,25 @@ describe("FormScreen", () => {
 
     await press(stdin, "\u001B[A"); // already on the first editable row: stays there
     await press(stdin, ..."2"); // appends to the host
-    await press(stdin, "\u001B[B", "\u001B[B", "\u001B[B", "\u001B[B", "\u001B[B", "\u001B[B", "\r");
+    await press(
+      stdin,
+      "\u001B[B",
+      "\u001B[B",
+      "\u001B[B",
+      "\u001B[B",
+      "\u001B[B",
+      "\u001B[B",
+      "\u001B[B",
+      "\r",
+    );
     await wait();
 
     expect(onSaved.mock.calls[0]![0]).toMatchObject({ name: "dev", password: "stored" });
     expect(mocks.saveSecret).not.toHaveBeenCalled();
-    expect((await loadConfig()).profiles.dev).toMatchObject({ host: "localhost2", passwordStorage: "keyring" });
+    expect((await loadConfig()).profiles.dev).toMatchObject({
+      host: "localhost2",
+      passwordStorage: "keyring",
+    });
   });
 
   it("should cancel with Esc", async () => {
@@ -251,11 +368,15 @@ describe("ProfilesScreen", () => {
   const seed = async () =>
     saveConfig(
       setDefault(
-        addProfile(addProfile({ profiles: {} }, "local", { ...profile, passwordStorage: "keyring" }), "staging", {
-          ...profile,
-          database: "stage",
-          passwordStorage: "prompt",
-        }),
+        addProfile(
+          addProfile({ profiles: {} }, "local", { ...profile, passwordStorage: "keyring" }),
+          "staging",
+          {
+            ...profile,
+            database: "stage",
+            passwordStorage: "prompt",
+          },
+        ),
         "local",
       ),
     );
@@ -281,7 +402,7 @@ describe("ProfilesScreen", () => {
   it("should list profiles, mark the default, and show details", async () => {
     const { lastFrame } = await open();
 
-    expect(lastFrame()).toContain("[1] Profiles 2");
+    expect(lastFrame()).toContain("Servers 2");
     expect(lastFrame()).toContain("* local");
     expect(lastFrame()).toContain("  staging");
     expect(lastFrame()).toContain("localhost:5432");
@@ -352,8 +473,29 @@ describe("ProfilesScreen", () => {
     await press(stdin, "o", ...type("reports"), "\r");
     await wait();
 
-    expect(onConnect.mock.calls[0]![0]).toMatchObject({ source: 'profile "local", database "reports"' });
-    expect(await loadConfig()).toMatchObject({ defaultProfile: "local", defaultDatabase: "reports" });
+    expect(onConnect.mock.calls[0]![0]).toMatchObject({
+      source: 'profile "local", database "reports"',
+    });
+    expect(await loadConfig()).toMatchObject({
+      defaultProfile: "local",
+      defaultDatabase: "reports",
+    });
+  });
+
+  it("should keep the selected database visible in a long database list", async () => {
+    const { lastFrame, stdin } = await open();
+    const databases = Array.from({ length: 30 }, (_, i) => ({ datname: `db${i}` }));
+    mocks.query
+      .mockReset()
+      .mockResolvedValueOnce(CONNECTED)
+      .mockResolvedValueOnce({ rows: databases });
+
+    await press(stdin, "d");
+    await wait();
+    await press(stdin, ...Array(20).fill("\u001B[B"));
+
+    expect(lastFrame()).toContain("db20");
+    expect(lastFrame()).not.toContain("db0");
   });
 
   it("should delete only after a y, and clean up the saved password", async () => {
@@ -390,10 +532,18 @@ describe("ProfilesScreen", () => {
   });
 
   it("should invite the user to add a profile when there are none", async () => {
-    const app = render(<ProfilesScreen onConnect={vi.fn()} onAdd={vi.fn()} onEdit={vi.fn()} onBack={vi.fn()} onQuit={vi.fn()} />);
+    const app = render(
+      <ProfilesScreen
+        onConnect={vi.fn()}
+        onAdd={vi.fn()}
+        onEdit={vi.fn()}
+        onBack={vi.fn()}
+        onQuit={vi.fn()}
+      />,
+    );
 
     await wait();
 
-    expect(app.lastFrame()).toContain("Press a to add a profile.");
+    expect(app.lastFrame()).toContain("Press a to add a server.");
   });
 });
